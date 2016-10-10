@@ -1,0 +1,250 @@
+#!/usr/bin/python
+
+#########################################################################################
+# FILE:																					#
+# dsync																					#
+#																						#
+# VERSION:																				#
+# 1.1.0																					#
+#																						#
+# AUTHOR:																				#
+# Devon Bautista																		#
+#																						#
+# DESCRIPTION:																			#
+# Synchronizes data between two directories. The subordinate directory's file contents	#
+# and attributes will match that of the dominant directory, preference based off of 	#
+# options passed to the commnand.														#
+#########################################################################################
+
+import os
+import sys
+import shutil
+
+HELP = """Usage: dsync [MODE] [OPTION]... DOM_DIR SUB_DIR
+Synchronize data between DOM_DIR and SUB_DIR via MODE.
+DOM_DIR is the dominant directory, whose files take precedence.
+SUB_DIR is the subordinate directory, whose contents may/may not get replaced/copied to.
+
+MODES:
+  -l, --large		Replace subordinate file/directory with dominant file/directory
+  			if the dominant one is LARGER than the subordinate one.
+  -n, --new		Replace subordinate file/directory with dominant file/directory
+  			if the dominant one is NEWER than the subordinate one. This is
+  			the default mode if MODE is not specified.
+  -o, --old		Replace subordinate file/directory with dominant file/directory
+  			if the dominant one is OLDER than the subordinate one.
+  -s, --small		Replace subordinate file/directory with dominant file/directory
+  			if the dominant one is SMALLER than the subordinate one.
+
+OPTIONS:
+  -v, --verbose		Send all program actions to stdout.
+  -h, --help		Display this help message and terminate.
+  -f, --force		If a file in SUB_DIR is newer/older/larger/smaller (depending on options)
+  			than the same file in DOM_DIR, replace the one in SUB_DIR with the one in DOM_DIR.
+
+EXIT CODES:
+   0			Execution successful.
+   1			Directory(ies) passed are invalid.
+   2			Other error.
+"""
+
+def main():
+	'''Performs the runtime operations of the program. Executed on program start.'''
+	mode, verbose, force, dom, sub = parse_args()
+	sync_dirs(mode, verbose, force, dom, sub)
+
+def copytree(src, dst, symlinks=False, ignore=None):
+	'''Intelligently copies directories and files within src to dst.'''
+	for item in os.listdir(src):
+		s = os.path.join(src, item)
+		d = os.path.join(dst, item)
+		if os.path.isdir(s):
+			shutil.copytree(s, d, symlinks, ignore)
+		else:
+			shutil.copy2(s, d)
+
+def parse_args():
+	'''Parses arguments passed to the program from the command line.
+	Returns
+	-------
+	mode :		{'NEW', 'OLD', 'LARGE', 'SMALL'}
+				The the attribute of the file that takes priority when
+				replacing files during synchronization.
+	verbose :	bool
+				If true, the program will produce a verbose output to stdin.
+	force :		bool
+				If true, files in the subordinate directory that take priority
+				will be replaced by its counterpart in the dominant directory.
+	dom :		str
+				The file path of the dominant directory.
+	sub :		str
+				The file path of the subordinate directory.'''
+
+	# Check argument length.
+	if len(sys.argv) == 1:
+		print("Usage: dsync [MODE] [OPTION]... DOM_DIR SUB_DIR")
+		print("Type 'dsync -h' or 'dsync --help' for help.")
+		sys.exit(2)
+
+	# OPTIONS
+	if "-h" in sys.argv or "--help" in sys.argv:
+		print(HELP)
+		sys.exit(0)
+
+	if "-v" in sys.argv or "--verbose" in sys.argv:
+		verbose = True
+	else:
+		verbose = False
+
+	if "-f" in sys.argv or "--force" in sys.argv:
+		force = True
+	else:
+		force = False
+
+	# MODES
+	if "-l" in sys.argv or "--large" in sys.argv:
+		mode = "LARGE"
+	elif "-s" in sys.argv or "--small" in sys.argv:
+		mode = "SMALL"
+	elif "-n" in sys.argv or "--new" in sys.argv:
+		mode = "NEW"
+	elif "-o" in sys.argv or "--old" in sys.argv:
+		mode = "OLD"
+	else:
+		mode = "NEW"
+
+	# Directory verification
+	if os.path.isdir(sys.argv[-2]):
+		dom = sys.argv[-2]
+	else:
+		print("Invalid directory:", sys.argv[-2])
+		sys.exit(1)
+
+	if os.path.isdir(sys.argv[-1]):
+		sub = sys.argv[-1]
+	else:
+		print("Invalid directory:", sys.argv[-1])
+		sys.exit(1)
+
+	return mode, verbose, force, dom, sub
+
+def sync(mode, verbose, dom, sub, force=False):
+	'''Synchronizes dom with sub.
+
+	Parameters
+	----------
+	mode :		{'NEW', 'OLD', 'LARGE', 'SMALL'}
+				Specifies the priority attribute of each file/directory that should be used
+				if the same file in the dominant directory exists in the subordinate directory.
+	verbose :	bool
+				If true, the function will print out whenever a file is replaced/deleted/copied.
+	dom :		str
+				The dominant directory. Files/directories in here are never modified or deleted,
+				but copied from to the subordinate directory.
+	sub :		The subordinate directory. Files/directories in here are modified/deleted in
+				order to mimic the files/directories in the dominant directory.
+	force :		bool, optional
+				If true, then in the special case that a newer/older/smaller/larger file (depending on
+				`mode`) is in the dominant directory rather than the subordinate one, the function
+				will replace said file with the one in the dominant directory. If false, a note
+				is printed but nothing is done to the file.'''
+
+	# Check if files exist in sub but not in dom. If so, delete them.
+	for sub_item in os.listdir(sub):
+		if not sub_item in os.listdir(dom):
+			if os.path.isdir(os.path.join(sub, sub_item)):
+				if verbose == True: print("Deleting directory \"%s\" not in %s." % (sub_item, dom))
+				shutil.rmtree(os.path.join(sub, sub_item))
+			else:
+				if verbose == True: print("Deleting file \"%s\" not in %s." % (sub_item, dom))
+				os.remove(os.path.join(sub, sub_item))
+
+	# Check files in dom against corresponding files in sub.
+	for dom_item in os.listdir(dom):
+		# If file/directory exists in dom but not in sub, copy it to from dom to sub.
+		if not dom_item in os.listdir(sub):
+			if os.path.isdir(os.path.join(dom, dom_item)):
+				if verbose == True: print("Copying directory \"%s\" to %s." % (dom_item, sub))
+				os.makedirs(os.path.join(sub, dom_item))
+				copytree(os.path.join(dom, dom_item), os.path.join(sub, dom_item))
+			else:
+				if verbose == True: print("Copying file \"%s\" to %s." % (dom_item, sub))
+				shutil.copy2(os.path.join(dom, dom_item), sub)
+		# Otherwise, replace the file/directory in sub with the one in dom according to the mode.
+		else:
+			if not os.path.isdir(os.path.join(dom, dom_item)):
+				if mode == "LARGE":
+					# If file in dom is larger than file in sub, then replace the one in sub.
+					if os.stat(os.path.join(dom, dom_item)).st_size > os.stat(os.path.join(sub, dom_item)).st_size:
+						if verbose == True: print("Replacing file \"%s\" with larger file." % dom_item)
+						shutil.copy2(os.path.join(dom, dom_item), sub)
+					# If file in dom is smaller than file in sub, then replace the one in sub if force option passed.
+					elif os.stat(os.path.join(dom, dom_item)).st_size < os.stat(os.path.join(sub, dom_item)).st_size:
+						if force == True:
+							if verbose == True: print("The file \"%s\" in %s is larger than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
+							shutil.copy2(os.path.join(dom, dom_item), sub)
+						else:
+							print("NOTE: The file \"%s\" in %s is larger than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
+				elif mode == "SMALL":
+					# If file in dom is smaller than file in sub, then replace the one in sub.
+					if os.stat(os.path.join(dom, dom_item)).st_size < os.stat(os.path.join(sub, dom_item)).st_size:
+						if verbose == True: print("Replacing file \"%s\" with smaller file." % dom_item)
+						shutil.copy2(os.path.join(dom, dom_item), sub)
+					# If file in dom is larger than file in sub, then replace the one in sub if force option passed.
+					elif os.stat(os.path.join(dom, dom_item)).st_size > os.stat(os.path.join(sub, dom_item)).st_size:
+						if force == True:
+							if verbose == True: print("The file \"%s\" in %s is smaller than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
+							shutil.copy2(os.path.join(dom, dom_item), sub)
+						else:
+							print("NOTE: The file \"%s\" in %s is smaller than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
+				elif mode == "NEW":
+					# If file in dom is newer than file in sub, then replace the one in sub.
+					if os.stat(os.path.join(dom, dom_item)).st_mtime_ns > os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
+						if verbose == True: print("Replacing file \"%s\" with newer file." % dom_item)
+						shutil.copy2(os.path.join(dom, dom_item), sub)
+					# If file in dom is older than file in sub, then replace the one in sub if force option passed.
+					elif os.stat(os.path.join(dom, dom_item)).st_mtime_ns < os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
+						if force == True:
+							if verbose == True: print("The file \"%s\" in %s is newer than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
+							shutil.copy2(os.path.join(dom, dom_item), sub)
+						else:
+							print("NOTE: The file \"%s\" in %s is newer than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
+				elif mode == "OLD":
+					# If file in dom is older than file in sub, then replace the one in sub.
+					if os.stat(os.path.join(dom, dom_item)).st_mtime_ns < os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
+						if verbose == True: print("Replacing file \"%s\" with older file." % dom_item)
+						shutil.copy2(os.path.join(dom, dom_item), sub)
+					# If file in dom is newer than file in sub, then replace the one in sub if force option passed.
+					elif os.stat(os.path.join(dom, dom_item)).st_mtime_ns > os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
+						if force == True:
+							if verbose == True: print("The file \"%s\" in %s is older than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
+							shutil.copy2(os.path.join(dom, dom_item), sub)
+						else:
+							print("NOTE: The file \"%s\" in %s is older than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
+
+
+def sync_dirs(mode, verbose, force, dom, sub):
+	'''Recursively synchronizes the dominant directory with the subordinate directory.
+
+	See Also
+	--------
+	sync : Synchronizes the dominant directory with the subordinate directory.'''
+
+	# If either directory is empty, synchronize them non-recursively.
+	# NOTE: Add warning if dom is empty and sub is not. Ask user if they want to take this action.
+	if len(os.listdir(sub)) == 0 or len(os.listdir(dom)) == 0:
+		sync(mode, verbose, dom, sub)
+	# Otherwise, for every sub-directory within dom, synchronize the corresponding files.
+	else:
+		for dom_path, dom_dirs, dom_files in os.walk(dom):
+			# Get relative path from dom to current sub-directory.
+			dom_path_rel = os.path.relpath(dom_path, os.path.normpath(os.path.join(dom, "..")))
+			add_to_sub_path = os.path.join("", *dom_path_rel.split(os.path.sep)[1:])
+
+			dom_path = os.path.normpath(os.path.join(dom, "..", dom_path_rel))	# Add relative path to sub (to find corresponding sub-directory).
+			sub_path = os.path.normpath(os.path.join(sub, add_to_sub_path))		# Get absolute path of current sub-directory
+			sync(mode, verbose, dom_path, sub_path, force=force)
+
+# Run program if executed as a script.
+if __name__ == "__main__":
+	main()
