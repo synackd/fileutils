@@ -1,19 +1,19 @@
 #!/usr/bin/python
 
 #########################################################################################
-# FILE:																					#
-# dsync																					#
-#																						#
-# VERSION:																				#
-# 1.1.0																					#
-#																						#
-# AUTHOR:																				#
-# Devon Bautista																		#
-#																						#
-# DESCRIPTION:																			#
+# FILE:										        #
+# dsync											#
+#											#
+# VERSION:										#
+# 1.1.1										        #
+#											#
+# AUTHOR:										#
+# Devon Bautista								        #
+#											#
+# DESCRIPTION:									        #
 # Synchronizes data between two directories. The subordinate directory's file contents	#
 # and attributes will match that of the dominant directory, preference based off of 	#
-# options passed to the commnand.														#
+# options passed to the command.							#
 #########################################################################################
 
 import os
@@ -65,6 +65,7 @@ def copytree(src, dst, symlinks=False, ignore=None):
 
 def parse_args():
 	'''Parses arguments passed to the program from the command line.
+
 	Returns
 	-------
 	mode :		{'NEW', 'OLD', 'LARGE', 'SMALL'}
