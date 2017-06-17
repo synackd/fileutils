@@ -1,19 +1,19 @@
 #!/usr/bin/python
 
 #########################################################################################
-# FILE:										        #
-# dsync											#
-#											#
-# VERSION:										#
-# 1.1.1										        #
-#											#
-# AUTHOR:										#
-# Devon Bautista								        #
-#											#
-# DESCRIPTION:									        #
+# FILE:										        									#
+# dsync																					#
+#																						#
+# VERSION:																				#
+# 2.0.0										        									#
+#																						#
+# AUTHOR:																				#
+# Devon Bautista								        								#
+#																						#
+# DESCRIPTION:									        								#
 # Synchronizes data between two directories. The subordinate directory's file contents	#
 # and attributes will match that of the dominant directory, preference based off of 	#
-# options passed to the command.							#
+# options passed to the command.														#
 #########################################################################################
 
 import os
@@ -48,10 +48,31 @@ EXIT CODES:
    2			Other error.
 """
 
+dirs_changed = 0		# Number of directories changed in subordinate directory.
+files_changed = 0		# Number of files changed in subordinate directory.
+items_synced = 0		# Total number of items synchronized
+
 def main():
 	'''Performs the runtime operations of the program. Executed on program start.'''
+	
+	# Parsing and error handling for arguments.
 	mode, verbose, force, dom, sub = parse_args()
-	sync_dirs(mode, verbose, force, dom, sub)
+
+	# If the user opted to continue, do so.
+	cont = verify_dirs(dom, sub)
+	if cont == True:
+		# Perform synchronization.
+		sync_dirs(mode, verbose, force, dom, sub)
+
+		# Let user know if nothing was changed.
+		if items_synced == 0:
+			print("Directories are identical. No items synchronized.")
+			return
+
+		# Print statistics of synchronization.
+		print("Directories changed:\t", dirs_changed)
+		print("Files changed:\t\t", files_changed)
+		print("Items synchronized:\t", items_synced)
 
 def copytree(src, dst, symlinks=False, ignore=None):
 	'''Intelligently copies directories and files within src to dst.'''
@@ -150,15 +171,23 @@ def sync(mode, verbose, dom, sub, force=False):
 				will replace said file with the one in the dominant directory. If false, a note
 				is printed but nothing is done to the file.'''
 
+	# Reset variables.
+	global dirs_changed
+	global files_changed
+	global items_synced
+
 	# Check if files exist in sub but not in dom. If so, delete them.
 	for sub_item in os.listdir(sub):
 		if not sub_item in os.listdir(dom):
 			if os.path.isdir(os.path.join(sub, sub_item)):
 				if verbose == True: print("Deleting directory \"%s\" not in %s." % (sub_item, dom))
 				shutil.rmtree(os.path.join(sub, sub_item))
+				dirs_changed += 1
 			else:
 				if verbose == True: print("Deleting file \"%s\" not in %s." % (sub_item, dom))
 				os.remove(os.path.join(sub, sub_item))
+				files_changed += 1
+			items_synced += 1
 
 	# Check files in dom against corresponding files in sub.
 	for dom_item in os.listdir(dom):
@@ -168,9 +197,13 @@ def sync(mode, verbose, dom, sub, force=False):
 				if verbose == True: print("Copying directory \"%s\" to %s." % (dom_item, sub))
 				os.makedirs(os.path.join(sub, dom_item))
 				copytree(os.path.join(dom, dom_item), os.path.join(sub, dom_item))
+				dirs_changed += 1
 			else:
 				if verbose == True: print("Copying file \"%s\" to %s." % (dom_item, sub))
 				shutil.copy2(os.path.join(dom, dom_item), sub)
+				files_changed += 1
+			items_synced += 1
+
 		# Otherwise, replace the file/directory in sub with the one in dom according to the mode.
 		else:
 			if not os.path.isdir(os.path.join(dom, dom_item)):
@@ -179,11 +212,15 @@ def sync(mode, verbose, dom, sub, force=False):
 					if os.stat(os.path.join(dom, dom_item)).st_size > os.stat(os.path.join(sub, dom_item)).st_size:
 						if verbose == True: print("Replacing file \"%s\" with larger file." % dom_item)
 						shutil.copy2(os.path.join(dom, dom_item), sub)
+						files_changed += 1
+						items_synced += 1
 					# If file in dom is smaller than file in sub, then replace the one in sub if force option passed.
 					elif os.stat(os.path.join(dom, dom_item)).st_size < os.stat(os.path.join(sub, dom_item)).st_size:
 						if force == True:
 							if verbose == True: print("The file \"%s\" in %s is larger than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
 							shutil.copy2(os.path.join(dom, dom_item), sub)
+							files_changed += 1
+							items_synced += 1
 						else:
 							print("NOTE: The file \"%s\" in %s is larger than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
 				elif mode == "SMALL":
@@ -191,11 +228,15 @@ def sync(mode, verbose, dom, sub, force=False):
 					if os.stat(os.path.join(dom, dom_item)).st_size < os.stat(os.path.join(sub, dom_item)).st_size:
 						if verbose == True: print("Replacing file \"%s\" with smaller file." % dom_item)
 						shutil.copy2(os.path.join(dom, dom_item), sub)
+						files_changed += 1
+						items_synced += 1
 					# If file in dom is larger than file in sub, then replace the one in sub if force option passed.
 					elif os.stat(os.path.join(dom, dom_item)).st_size > os.stat(os.path.join(sub, dom_item)).st_size:
 						if force == True:
 							if verbose == True: print("The file \"%s\" in %s is smaller than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
 							shutil.copy2(os.path.join(dom, dom_item), sub)
+							files_changed += 1
+							items_synced += 1
 						else:
 							print("NOTE: The file \"%s\" in %s is smaller than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
 				elif mode == "NEW":
@@ -203,11 +244,15 @@ def sync(mode, verbose, dom, sub, force=False):
 					if os.stat(os.path.join(dom, dom_item)).st_mtime_ns > os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
 						if verbose == True: print("Replacing file \"%s\" with newer file." % dom_item)
 						shutil.copy2(os.path.join(dom, dom_item), sub)
+						files_changed += 1
+						items_synced += 1
 					# If file in dom is older than file in sub, then replace the one in sub if force option passed.
 					elif os.stat(os.path.join(dom, dom_item)).st_mtime_ns < os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
 						if force == True:
 							if verbose == True: print("The file \"%s\" in %s is newer than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
 							shutil.copy2(os.path.join(dom, dom_item), sub)
+							files_changed += 1
+							items_synced += 1
 						else:
 							print("NOTE: The file \"%s\" in %s is newer than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
 				elif mode == "OLD":
@@ -215,11 +260,15 @@ def sync(mode, verbose, dom, sub, force=False):
 					if os.stat(os.path.join(dom, dom_item)).st_mtime_ns < os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
 						if verbose == True: print("Replacing file \"%s\" with older file." % dom_item)
 						shutil.copy2(os.path.join(dom, dom_item), sub)
+						files_changed += 1
+						items_synced += 1
 					# If file in dom is newer than file in sub, then replace the one in sub if force option passed.
 					elif os.stat(os.path.join(dom, dom_item)).st_mtime_ns > os.stat(os.path.join(sub, dom_item)).st_mtime_ns:
 						if force == True:
 							if verbose == True: print("The file \"%s\" in %s is older than the one in %s. Replacing since force option passed." % (dom_item, sub, dom))
 							shutil.copy2(os.path.join(dom, dom_item), sub)
+							files_changed += 1
+							items_synced += 1
 						else:
 							print("NOTE: The file \"%s\" in %s is older than the one in %s. Use -f or --force to replace. Not replacing." % (dom_item, sub, dom))
 
@@ -232,7 +281,6 @@ def sync_dirs(mode, verbose, force, dom, sub):
 	sync : Synchronizes the dominant directory with the subordinate directory.'''
 
 	# If either directory is empty, synchronize them non-recursively.
-	# NOTE: Add warning if dom is empty and sub is not. Ask user if they want to take this action.
 	if len(os.listdir(sub)) == 0 or len(os.listdir(dom)) == 0:
 		sync(mode, verbose, dom, sub)
 	# Otherwise, for every sub-directory within dom, synchronize the corresponding files.
@@ -245,6 +293,24 @@ def sync_dirs(mode, verbose, force, dom, sub):
 			dom_path = os.path.normpath(os.path.join(dom, "..", dom_path_rel))	# Add relative path to sub (to find corresponding sub-directory).
 			sub_path = os.path.normpath(os.path.join(sub, add_to_sub_path))		# Get absolute path of current sub-directory
 			sync(mode, verbose, dom_path, sub_path, force=force)
+
+def verify_dirs(dom, sub):
+	'''Let's the user verify their entered directories before syncing.'''
+
+	# Display entered directories.
+	print("Dominant Directory (NOT modified):")
+	print(dom + "\n")
+	print("Subordinate Directory (WILL be modified):")
+	print(sub + "\n")
+
+	# Ask user if they want to continue.
+	choice = input("Continue with synchronization (y/N)?: ")
+	if choice in ("y", "Y"):
+		print("Starting synchronization...")
+		return True
+	else:
+		print("Cancelling...")
+		return False
 
 # Run program if executed as a script.
 if __name__ == "__main__":
